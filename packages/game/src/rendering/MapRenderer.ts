@@ -32,16 +32,6 @@ export class MapRenderer {
       }
     }
 
-    // Grid overlay
-    this.graphics.lineStyle(1, 0x2a2a55, 0.5);
-    for (let col = 0; col <= map.width; col++) {
-      this.graphics.moveTo(col * tileSize, 0).lineTo(col * tileSize, map.height * tileSize);
-    }
-    for (let row = 0; row <= map.height; row++) {
-      this.graphics.moveTo(0, row * tileSize).lineTo(map.width * tileSize, row * tileSize);
-    }
-    this.graphics.strokePath();
-
     // Visual layer — tileset images placed on top (depth 1)
     for (let row = 0; row < map.height; row++) {
       for (let col = 0; col < map.width; col++) {

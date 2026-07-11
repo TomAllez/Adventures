@@ -1,8 +1,9 @@
-import Phaser from 'phaser';
-import { TICK_INTERVAL_MS } from '@org/common';
 import type { GameState, Player, TileMap } from '@org/common';
+import { TICK_INTERVAL_MS } from '@org/common';
+import Phaser from 'phaser';
 import type { NetworkClient } from '../network/client.js';
 import { MapRenderer } from '../rendering/MapRenderer.js';
+import { ShadowLayer } from '../rendering/ShadowLayer.js';
 import { lerp } from '../utils/math.js';
 
 type InitData = {
@@ -23,8 +24,10 @@ export class GameScene extends Phaser.Scene {
   private currentTick = 0;
   private initialState!: GameState;
   private initialMap!: TileMap;
+  private currentMap!: TileMap;
 
   private mapRenderer!: MapRenderer;
+  private shadowLayer!: ShadowLayer;
   private views = new Map<string, PlayerView>();
   private previousState: GameState | null = null;
   private currentState: GameState | null = null;
@@ -41,6 +44,7 @@ export class GameScene extends Phaser.Scene {
     this.playerId = data.playerId;
     this.initialState = data.state;
     this.initialMap = data.map;
+    this.currentMap = data.map;
     this.currentTick = data.state.tick;
   }
 
@@ -49,6 +53,15 @@ export class GameScene extends Phaser.Scene {
     this.cursors = this.input.keyboard!.createCursorKeys();
     this.applyState(this.initialState);
     this.loadTilesetsAndRender(this.initialMap);
+
+    const mapW = this.initialMap.width * this.initialMap.tileSize;
+    const mapH = this.initialMap.height * this.initialMap.tileSize;
+    this.shadowLayer = new ShadowLayer(this, mapW, mapH);
+
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.shadowLayer.destroy();
+      this.mapRenderer.destroy();
+    });
   }
 
   override update() {
@@ -59,6 +72,7 @@ export class GameScene extends Phaser.Scene {
       right: this.cursors.right.isDown,
     });
     this.interpolateViews();
+    this.updateShadow();
   }
 
   applyState(state: GameState) {
@@ -76,7 +90,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   applyMap(map: TileMap) {
+    this.currentMap = map;
     this.loadTilesetsAndRender(map);
+    const mapW = map.width * map.tileSize;
+    const mapH = map.height * map.tileSize;
+    this.shadowLayer?.resize(mapW, mapH);
   }
 
   addPlayer(player: Player) {
@@ -88,7 +106,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   private loadTilesetsAndRender(map: TileMap) {
-    // Update camera bounds to match actual map size (supports dynamic resizing)
     const mapW = map.width * map.tileSize;
     const mapH = map.height * map.tileSize;
     this.cameras.main.setBounds(0, 0, mapW, mapH);
@@ -126,10 +143,22 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private updateShadow() {
+    if (!this.currentMap) return;
+    const self = this.views.get(this.playerId);
+    if (!self) return;
+    const localPos = { x: self.sprite.x, y: self.sprite.y };
+    const others: { x: number; y: number }[] = [];
+    for (const [id, view] of this.views) {
+      if (id !== this.playerId) others.push({ x: view.sprite.x, y: view.sprite.y });
+    }
+    this.shadowLayer.update(localPos, others, this.currentMap);
+  }
+
   private spawnView(id: string, player: Player) {
     const isSelf = id === this.playerId;
     const color = isSelf ? 0x00ff88 : 0xff4455;
-    // depth 5 — above map base (0) and visual tiles (1)
+    // depth 5 — above map base (0) and visual tiles (1), below shadow (20)
     const sprite = this.add
       .rectangle(player.position.x, player.position.y, 28, 28, color)
       .setDepth(5);
