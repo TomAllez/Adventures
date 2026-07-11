@@ -1,4 +1,4 @@
-import type { GameState, Player, PlayerInput } from '@org/common';
+import type { GameState, Player, PlayerInput, TileMap } from '@org/common';
 import { movePlayer } from './physics.js';
 
 const EMPTY_INPUT: PlayerInput = { up: false, down: false, left: false, right: false };
@@ -19,12 +19,13 @@ export function removePlayer(state: GameState, playerId: string): GameState {
 export function tickState(
   state: GameState,
   inputs: ReadonlyMap<string, PlayerInput>,
+  map: TileMap,
   deltaMs: number,
 ): GameState {
   const players = Object.fromEntries(
     Object.entries(state.players).map(([id, player]) => [
       id,
-      movePlayer(player, inputs.get(id) ?? EMPTY_INPUT, deltaMs),
+      movePlayer(player, inputs.get(id) ?? EMPTY_INPUT, deltaMs, map),
     ]),
   );
   return { tick: state.tick + 1, players };

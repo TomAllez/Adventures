@@ -1,6 +1,7 @@
-import type { PlayerInput, ServerMessage } from '@org/common';
+import { type Server } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
+import type { ServerMessage, PlayerInput } from '@org/common';
 import { parseClientMessage, serializeServerMessage } from './codec.js';
 
 export type Send = (msg: ServerMessage) => void;
@@ -15,8 +16,8 @@ export type NetworkServer = {
   broadcast: Send;
 };
 
-export function createNetworkServer(port: number, callbacks: ConnectionCallbacks): NetworkServer {
-  const wss = new WebSocketServer({ port });
+export function createNetworkServer(httpServer: Server, callbacks: ConnectionCallbacks): NetworkServer {
+  const wss = new WebSocketServer({ server: httpServer });
   const sockets = new Map<string, WebSocket>();
 
   wss.on('connection', (ws) => {
@@ -46,8 +47,6 @@ export function createNetworkServer(port: number, callbacks: ConnectionCallbacks
       if (ws.readyState === WebSocket.OPEN) ws.send(serialized);
     }
   };
-
-  console.log(`Server listening on ws://localhost:${port}`);
 
   return { broadcast };
 }

@@ -12,5 +12,16 @@ export default defineConfig({
   },
   server: {
     port: 8080,
+    proxy: {
+      '/api': 'http://localhost:3000',
+    },
+  },
+  build: {
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        editor: resolve(__dirname, 'editor.html'),
+      },
+    },
   },
 });

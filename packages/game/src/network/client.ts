@@ -1,13 +1,14 @@
-import type { ClientMessage, GameState, Player, PlayerInput } from '@org/common';
+import type { ClientMessage, GameState, Player, PlayerInput, TileMap } from '@org/common';
 import { parseServerMessage, serializeClientMessage } from './codec.js';
 
 export type NetworkCallbacks = {
   onConnected: () => void;
   onError: () => void;
-  onWelcome: (playerId: string, state: GameState) => void;
+  onWelcome: (playerId: string, state: GameState, map: TileMap) => void;
   onTick: (tick: number, state: GameState) => void;
   onPlayerJoined: (player: Player) => void;
   onPlayerLeft: (playerId: string) => void;
+  onMapUpdated: (map: TileMap) => void;
 };
 
 export type NetworkClient = {
@@ -26,10 +27,11 @@ export function createNetworkClient(url: string, callbacks: NetworkCallbacks): N
     const msg = parseServerMessage(event.data);
     if (!msg) return;
     switch (msg.type) {
-      case 'welcome':       callbacks.onWelcome(msg.playerId, msg.state); break;
+      case 'welcome':       callbacks.onWelcome(msg.playerId, msg.state, msg.map); break;
       case 'tick':          callbacks.onTick(msg.tick, msg.state); break;
       case 'player_joined': callbacks.onPlayerJoined(msg.player); break;
       case 'player_left':   callbacks.onPlayerLeft(msg.playerId); break;
+      case 'map_updated':   callbacks.onMapUpdated(msg.map); break;
     }
   };
 

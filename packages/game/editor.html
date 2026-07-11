@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Adventure.io — World Editor</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { background: #0f0f1e; color: #fff; font-family: monospace; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+      #toolbar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 16px;
+        height: 52px;
+        background: #1a1a2e;
+        border-bottom: 1px solid #2a2a4a;
+        flex-shrink: 0;
+      }
+
+      #toolbar h1 { font-size: 13px; color: #7777aa; margin-right: 4px; white-space: nowrap; }
+
+      .sep { width: 1px; height: 28px; background: #2a2a4a; margin: 0 4px; }
+      .flex { flex: 1; }
+
+      button {
+        padding: 5px 12px;
+        border: 1px solid #444466;
+        border-radius: 4px;
+        background: #252545;
+        color: #ccc;
+        cursor: pointer;
+        font-family: monospace;
+        font-size: 13px;
+        white-space: nowrap;
+      }
+      button:hover { background: #333366; color: #fff; }
+      button.active { background: #4455aa; border-color: #7788ff; color: #fff; }
+      button.danger { border-color: #664444; color: #ff8888; }
+      button.danger:hover { background: #442222; }
+      button.primary { border-color: #446655; color: #88ffcc; }
+      button.primary:hover { background: #224433; }
+      button.accent { border-color: #445566; color: #88bbff; }
+      button.accent:hover { background: #223344; }
+
+      #hint { font-size: 11px; color: #555577; white-space: nowrap; }
+      #status { font-size: 13px; min-width: 70px; text-align: right; }
+
+      a { color: #6677aa; font-size: 13px; text-decoration: none; }
+      a:hover { color: #aabbff; }
+
+      /* Two-column layout: canvas + sidebar */
+      #main-area {
+        flex: 1;
+        display: flex;
+        overflow: hidden;
+      }
+
+      #canvas-container { flex: 1; overflow: hidden; }
+      #canvas-container canvas { display: block; }
+
+      /* Tileset sidebar */
+      #sidebar {
+        width: 284px;
+        flex-shrink: 0;
+        background: #12122a;
+        border-left: 1px solid #2a2a4a;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      #sidebar-header {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 10px;
+        background: #1a1a2e;
+        border-bottom: 1px solid #2a2a4a;
+        flex-shrink: 0;
+      }
+      #sidebar-header span { font-size: 12px; color: #8888aa; flex: 1; }
+
+      #sidebar-header button {
+        padding: 3px 8px;
+        font-size: 11px;
+      }
+
+      #tileset-panel {
+        flex: 1;
+        overflow-y: auto;
+        padding: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      /* Custom scrollbar */
+      #tileset-panel::-webkit-scrollbar { width: 5px; }
+      #tileset-panel::-webkit-scrollbar-track { background: #12122a; }
+      #tileset-panel::-webkit-scrollbar-thumb { background: #2a2a4a; border-radius: 3px; }
+
+      .tileset-entry { display: flex; flex-direction: column; gap: 4px; }
+      .tileset-name {
+        font-size: 11px;
+        color: #6677aa;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .tileset-entry canvas {
+        display: block;
+        border: 1px solid #2a2a4a;
+        border-radius: 3px;
+        width: 100%;
+        height: auto;
+      }
+      .tileset-entry canvas:hover { border-color: #4455aa; }
+
+      #sidebar-footer {
+        padding: 8px 10px;
+        border-top: 1px solid #2a2a4a;
+        flex-shrink: 0;
+        font-size: 11px;
+        color: #444466;
+        line-height: 1.6;
+      }
+
+      input[type="file"] { display: none; }
+    </style>
+  </head>
+  <body>
+    <div id="toolbar">
+      <h1>World Editor</h1>
+      <div class="sep"></div>
+      <button data-tile="wall" class="active">■ Wall</button>
+      <button data-tile="floor">□ Floor</button>
+      <div class="sep"></div>
+      <button id="btn-clear" class="danger">Clear</button>
+      <span id="hint">Left-click: paint &nbsp;|&nbsp; Right-click: erase &nbsp;|&nbsp; Scroll: zoom &nbsp;|&nbsp; Arrows: pan</span>
+      <div class="flex"></div>
+      <span id="status"></span>
+      <button id="btn-save" class="primary">Save</button>
+      <div class="sep"></div>
+      <a href="/">← Game</a>
+    </div>
+
+    <div id="main-area">
+      <div id="canvas-container"></div>
+
+      <div id="sidebar">
+        <div id="sidebar-header">
+          <span>Tilesets</span>
+          <button id="btn-deselect-tile" class="accent" title="Stop painting tileset tiles">✕ Tile</button>
+          <button id="btn-import-tileset" class="accent">+ Import</button>
+          <input type="file" id="tileset-file-input" accept="image/*" />
+        </div>
+        <div id="tileset-panel">
+          <div style="font-size:11px;color:#333355;padding:4px 0;">
+            Import a tileset PNG to paint visuals on the map.<br>
+            Collision type (Wall/Floor) is set separately in the toolbar.
+          </div>
+        </div>
+        <div id="sidebar-footer">
+          Click a tile in the panel to select it, then paint on the map.<br>
+          Right-click always erases visual + collision.
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/editor.ts"></script>
+  </body>
+</html>

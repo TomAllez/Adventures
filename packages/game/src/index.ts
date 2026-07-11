@@ -20,8 +20,8 @@ const net = createNetworkClient('ws://localhost:3000', {
     }
   },
 
-  onWelcome(playerId, state) {
-    game.scene.start('GameScene', { net, playerId, state });
+  onWelcome(playerId, state, map) {
+    game.scene.start('GameScene', { net, playerId, state, map });
     game.scene.stop('BootScene');
   },
 
@@ -35,5 +35,9 @@ const net = createNetworkClient('ws://localhost:3000', {
 
   onPlayerLeft(playerId) {
     if (isActive('GameScene')) getScene<GameScene>('GameScene').removePlayer(playerId);
+  },
+
+  onMapUpdated(map) {
+    if (isActive('GameScene')) getScene<GameScene>('GameScene').applyMap(map);
   },
 });
