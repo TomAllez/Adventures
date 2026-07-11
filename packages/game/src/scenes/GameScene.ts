@@ -174,7 +174,7 @@ export class GameScene extends Phaser.Scene {
 
     this.views.set(id, { sprite, label });
     if (isSelf) {
-      this.cameras.main.setZoom(2.5);
+      this.cameras.main.setZoom(2);
       this.cameras.main.startFollow(sprite, true, 0.1, 0.1);
     }
   }

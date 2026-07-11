@@ -4,8 +4,8 @@ import type { TileMap } from '@org/common';
 
 const EPS = 0.0001;
 const DARKNESS = 0.78;
-const FADE_START = 0.62; // radius fraction where the gradient begins
-const VIGNETTE_KEY = '__shadow_vignette';
+const FADE_START = 0.55; // radius fraction at which the gradient begins
+const POLY_TEX_KEY = '__shadow_local_poly';
 
 function castDDA(
   px: number, py: number,
@@ -57,14 +57,11 @@ function buildVisibilityPolygon(
   const ts = map.tileSize;
   const angles: number[] = [];
 
-  // Uniformly-spread base rays give a smooth circular boundary where no walls obstruct.
-  // ~4 px arc per ray segment is enough at the viewport zoom of 2.2×.
   const baseCount = Math.ceil((Math.PI * 2 * radius) / 4);
   for (let i = 0; i < baseCount; i++) {
     angles.push(((i / baseCount) * 2 - 1) * Math.PI);
   }
 
-  // Precision rays toward wall tile corners — produces sharp shadow edges.
   const c0 = Math.max(0, Math.floor((px - radius) / ts));
   const c1 = Math.min(map.width - 1, Math.ceil((px + radius) / ts));
   const r0 = Math.max(0, Math.floor((py - radius) / ts));
@@ -91,66 +88,45 @@ function buildVisibilityPolygon(
   return angles.map((a) => castDDA(px, py, Math.cos(a), Math.sin(a), map, radius));
 }
 
-function buildVignetteTexture(scene: Phaser.Scene, radius: number): void {
-  const size = radius * 2;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d')!;
-  // Radial gradient: transparent from center to FADE_START, then ramps to full darkness at radius.
-  const grad = ctx.createRadialGradient(radius, radius, radius * FADE_START, radius, radius, radius);
-  grad.addColorStop(0, 'rgba(0,0,0,0)');
-  grad.addColorStop(1, `rgba(0,0,0,${DARKNESS})`);
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, size, size);
-  // Clip to circle — corners of the canvas would otherwise stay at DARKNESS and create
-  // a visible dark square when composited on top of the RT.
-  ctx.globalCompositeOperation = 'destination-in';
-  ctx.beginPath();
-  ctx.arc(radius, radius, radius, 0, Math.PI * 2);
-  ctx.fillStyle = '#000';
-  ctx.fill();
-  ctx.globalCompositeOperation = 'source-over';
-  if (scene.textures.exists(VIGNETTE_KEY)) scene.textures.remove(VIGNETTE_KEY);
-  scene.textures.addCanvas(VIGNETTE_KEY, canvas);
-}
-
 export class ShadowLayer {
   private scene: Phaser.Scene;
   private rt: Phaser.GameObjects.RenderTexture;
-  private gLocal: Phaser.GameObjects.Graphics;
   private gOthers: Phaser.GameObjects.Graphics;
-  private gradImg: Phaser.GameObjects.Image;
+  // Canvas texture for the local player's visibility polygon with a radial gradient fill.
+  // Using destination-out erase with this texture produces a polygon-clipped soft fade —
+  // no separate gradient circle is composited, so there's no circular boundary artifact.
+  private polyTex: Phaser.Textures.CanvasTexture;
+  private polyImg: Phaser.GameObjects.Image;
+  private radius: number;
 
   constructor(scene: Phaser.Scene, mapW: number, mapH: number, radius = 400) {
     this.scene = scene;
-    // 'all' mode: re-executes the command buffer every frame AND displays the result.
+    this.radius = radius;
+
     this.rt = scene.add.renderTexture(0, 0, mapW, mapH)
       .setOrigin(0, 0).setDepth(20).setRenderMode('all');
-    // Two separate Graphics objects so the RT command buffer always references
-    // distinct objects — rt.erase() stores a reference, not a geometry snapshot,
-    // so reusing one object causes all enqueued erases to replay with the final state.
-    this.gLocal = scene.add.graphics().setVisible(false);
+
     this.gOthers = scene.add.graphics().setVisible(false);
 
-    buildVignetteTexture(scene, radius);
-    this.gradImg = scene.add.image(0, 0, VIGNETTE_KEY).setVisible(false);
+    this.polyTex = scene.textures.createCanvas(POLY_TEX_KEY, radius * 2, radius * 2)!;
+    this.polyImg = scene.add.image(0, 0, POLY_TEX_KEY).setVisible(false);
   }
 
   update(
     localPos: { x: number; y: number },
     others: { x: number; y: number }[],
     map: TileMap,
-    radius = 400,
+    radius = this.radius,
   ) {
-    // Build local player's polygon geometry.
+    // Build local player's polygon and render it to the canvas texture with a
+    // radial gradient (opaque at center → transparent at radius edge). Using
+    // rt.erase() with this texture clips the soft fade to the polygon shape,
+    // eliminating any circular boundary artifact.
     const localPoly = buildVisibilityPolygon(localPos.x, localPos.y, map, radius);
-    this.gLocal.clear();
-    this.gLocal.fillStyle(0xffffff, 1);
-    this.gLocal.fillPoints(localPoly as Phaser.Math.Vector2[], true);
+    this.renderLocalPolygon(localPos, localPoly, radius);
+    this.polyImg.setPosition(localPos.x, localPos.y);
 
-    // Build all other players' polygons into one Graphics object (multiple fillPoints
-    // calls accumulate independently — each starts its own sub-path).
+    // Build all other players' polygons into gOthers (accumulated with fillPoints).
     this.gOthers.clear();
     if (others.length > 0) {
       this.gOthers.fillStyle(0xffffff, 1);
@@ -160,22 +136,51 @@ export class ShadowLayer {
       }
     }
 
-    // Issue all RT commands now that both Graphics objects are in their final state.
-    // The command buffer references these objects at flush time, so geometry must be
-    // fully written before any rt.* call is made.
+    // Issue RT commands after both geometry sources are fully written.
     this.rt.clear();
     this.rt.fill(0x000000, DARKNESS);
 
-    // Erase the union of all visible areas.
+    // Erase other players' lit areas (hard-edged, full alpha).
     if (others.length > 0) this.rt.erase(this.gOthers, 0, 0);
-    this.rt.erase(this.gLocal, 0, 0);
 
-    // Soft gradient for the local player's radius edge.
-    this.gradImg.setPosition(localPos.x, localPos.y);
-    this.rt.draw(this.gradImg, 0, 0);
+    // Erase local player's lit area using the gradient-filled polygon canvas.
+    // destination-out: result_alpha = dst_alpha × (1 − src_alpha).
+    // Because the canvas is transparent outside the polygon, nothing outside it
+    // is erased — so no circular boundary can form.
+    this.rt.erase(this.polyImg, 0, 0);
+  }
 
-    // Re-erase others so the gradient doesn't darken their lit zones.
-    if (others.length > 0) this.rt.erase(this.gOthers, 0, 0);
+  private renderLocalPolygon(
+    localPos: { x: number; y: number },
+    polygon: { x: number; y: number }[],
+    radius: number,
+  ): void {
+    const ctx = this.polyTex.context;
+    const size = radius * 2;
+    ctx.clearRect(0, 0, size, size);
+
+    if (polygon.length < 3) return;
+
+    // Polygon vertices in canvas-local space: player is at (radius, radius).
+    const ox = localPos.x - radius;
+    const oy = localPos.y - radius;
+    ctx.beginPath();
+    ctx.moveTo(polygon[0].x - ox, polygon[0].y - oy);
+    for (let i = 1; i < polygon.length; i++) {
+      ctx.lineTo(polygon[i].x - ox, polygon[i].y - oy);
+    }
+    ctx.closePath();
+
+    // Radial gradient fill: opaque inside, transparent at radius.
+    // When erased via destination-out, opaque pixels erase fully (bright center)
+    // and the fade zone partially erases (soft edge), clipped exactly to the polygon.
+    const grad = ctx.createRadialGradient(radius, radius, radius * FADE_START, radius, radius, radius);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    this.polyTex.refresh();
   }
 
   resize(mapW: number, mapH: number) {
@@ -184,11 +189,10 @@ export class ShadowLayer {
 
   destroy() {
     this.rt.destroy();
-    this.gLocal.destroy();
     this.gOthers.destroy();
-    this.gradImg.destroy();
-    if (this.scene.textures.exists(VIGNETTE_KEY)) {
-      this.scene.textures.remove(VIGNETTE_KEY);
+    this.polyImg.destroy();
+    if (this.scene.textures.exists(POLY_TEX_KEY)) {
+      this.scene.textures.remove(POLY_TEX_KEY);
     }
   }
 }
